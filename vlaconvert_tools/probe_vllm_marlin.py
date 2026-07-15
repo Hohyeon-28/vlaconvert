@@ -28,6 +28,33 @@ def discover_candidate_modules(vllm_module) -> list[str]:
     return list(dict.fromkeys(candidates))
 
 
+def scan_vllm_sources(vllm_module) -> list[tuple[str, list[str]]]:
+    """Search vLLM source files for GPTQ-Marlin related symbols."""
+
+    package_file = getattr(vllm_module, "__file__", None)
+    if not package_file:
+        return []
+
+    package_root = Path(package_file).resolve().parent
+    needles = [
+        "GPTQMarlinConfig",
+        "GPTQMarlinLinearMethod",
+        "gptq_marlin",
+        "GPTQ",
+        "Marlin",
+    ]
+    hits: list[tuple[str, list[str]]] = []
+    for path in package_root.rglob("*.py"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        found = [needle for needle in needles if needle in text]
+        if found:
+            hits.append((str(path.relative_to(package_root)), found))
+    return hits
+
+
 def main() -> int:
     try:
         import vllm
@@ -37,6 +64,15 @@ def main() -> int:
 
     print(f"vLLM version: {getattr(vllm, '__version__', '<unknown>')}")
     print(f"vLLM package: {getattr(vllm, '__file__', '<unknown>')}")
+
+    source_hits = scan_vllm_sources(vllm)
+    print("Source symbol hits:")
+    for rel_path, symbols in source_hits[:80]:
+        print(f"  - {rel_path}: {', '.join(symbols)}")
+    if len(source_hits) > 80:
+        print(f"  ... {len(source_hits) - 80} more files omitted")
+    if not source_hits:
+        print("  <none>")
 
     candidates = discover_candidate_modules(vllm)
     print("Candidate modules:")
