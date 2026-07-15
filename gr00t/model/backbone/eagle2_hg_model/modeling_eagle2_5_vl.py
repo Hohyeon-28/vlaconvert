@@ -5,6 +5,7 @@
 # --------------------------------------------------------
 
 import inspect
+import importlib
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -177,9 +178,9 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
         assert not any(k.kind == inspect.Parameter.VAR_KEYWORD for k in forward_params.values())
 
     def wrap_backbone_lora(self, r=128, lora_alpha=256, lora_dropout=0.05):
-        from peft import LoraConfig, get_peft_model
+        peft = importlib.import_module("peft")
 
-        lora_config = LoraConfig(
+        lora_config = peft.LoraConfig(
             r=r,
             target_modules=[
                 "self_attn.q_proj",
@@ -192,13 +193,13 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
         )
-        self.vision_model = get_peft_model(self.vision_model, lora_config)
+        self.vision_model = peft.get_peft_model(self.vision_model, lora_config)
         self.vision_model.print_trainable_parameters()
 
     def wrap_llm_lora(self, r=128, lora_alpha=256, lora_dropout=0.05):
-        from peft import LoraConfig, get_peft_model
+        peft = importlib.import_module("peft")
 
-        lora_config = LoraConfig(
+        lora_config = peft.LoraConfig(
             r=r,
             target_modules=[
                 "self_attn.q_proj",
@@ -213,7 +214,7 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
             lora_dropout=lora_dropout,
             task_type="CAUSAL_LM",
         )
-        self.language_model = get_peft_model(self.language_model, lora_config)
+        self.language_model = peft.get_peft_model(self.language_model, lora_config)
         self.language_model.enable_input_require_grads()
         self.language_model.print_trainable_parameters()
         self.use_llm_lora = True
