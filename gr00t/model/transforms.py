@@ -68,7 +68,15 @@ def build_eagle_processor(eagle_path: str) -> ProcessorMixin:
 
         def preprocess_without_video_kwarg(*args, **kwargs):
             kwargs.pop("videos", None)
-            return original_preprocess(*args, **kwargs)
+            outputs = original_preprocess(*args, **kwargs)
+            pixel_values = outputs.get("pixel_values")
+            if (
+                hasattr(pixel_values, "ndim")
+                and pixel_values.ndim == 5
+                and pixel_values.shape[0] == 1
+            ):
+                outputs["pixel_values"] = pixel_values.squeeze(0)
+            return outputs
 
         eagle_processor.image_processor.preprocess = preprocess_without_video_kwarg
         eagle_processor.image_processor._gr00t_drop_video_kwarg = True
