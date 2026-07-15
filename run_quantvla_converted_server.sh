@@ -43,39 +43,65 @@ if [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
     conda activate "${GR00T_CONDA_ENV:-groot_test}" || true
 fi
 
-GR00T_REPO="${GR00T_REPO:-$HOME/private/QuantVLA_marlin}"
-if [[ ! -d "$GR00T_REPO" ]]; then
-    GR00T_REPO="$HOME/private/QuantVLA"
-fi
-if [[ ! -d "$GR00T_REPO" ]]; then
-    echo "Could not find GR00T repo. Set GR00T_REPO=/path/to/QuantVLA_marlin or QuantVLA." >&2
-    exit 1
-fi
+case "$TASK" in
+    libero_spatial)
+        MODEL_PATH="youliangtan/gr00t-n1.5-libero-spatial-posttrain"
+        DATA_CONFIG="examples.Libero.custom_data_config:LiberoDataConfig"
+        ;;
+    libero_goal)
+        MODEL_PATH="youliangtan/gr00t-n1.5-libero-goal-posttrain"
+        DATA_CONFIG="examples.Libero.custom_data_config:LiberoDataConfigMeanStd"
+        ;;
+    libero_object)
+        MODEL_PATH="youliangtan/gr00t-n1.5-libero-object-posttrain"
+        DATA_CONFIG="examples.Libero.custom_data_config:LiberoDataConfig"
+        ;;
+    libero_90)
+        MODEL_PATH="youliangtan/gr00t-n1.5-libero-90-posttrain"
+        DATA_CONFIG="examples.Libero.custom_data_config:LiberoDataConfig"
+        ;;
+    libero_10)
+        MODEL_PATH="youliangtan/gr00t-n1.5-libero-long-posttrain"
+        DATA_CONFIG="examples.Libero.custom_data_config:LiberoDataConfig"
+        ;;
+    *)
+        echo "Unknown task: $TASK" >&2
+        echo "Available tasks: libero_spatial, libero_goal, libero_object, libero_90, libero_10" >&2
+        exit 1
+        ;;
+esac
 
-# Avoid accidentally enabling the old DuQuant or GPTQ replacement path while this server patches explicitly.
+# Avoid accidentally enabling the old DuQuant or GPTQ replacement path.
 for name in $(env | cut -d= -f1 | grep -E '^(GR00T_DUQUANT_|GR00T_GPTQ_)' || true); do
     unset "$name"
 done
 
 mkdir -p /tmp/logs
-REPORT="${QUANTVLA_REPORT:-/tmp/logs/quantvla_converted_${MODE}_${TASK}_replacement_report.json}"
+REPORT="${QUANTVLA_CONVERTED_REPORT:-/tmp/logs/quantvla_converted_${MODE}_${TASK}_replacement_report.json}"
 DENOISING_STEPS="${GR00T_DENOISING_STEPS:-8}"
 
-export PYTHONPATH="$SCRIPT_DIR:$GR00T_REPO:${PYTHONPATH:-}"
+export PYTHONPATH="$SCRIPT_DIR:${PYTHONPATH:-}"
+export QUANTVLA_CONVERTED_CHECKPOINT="$CONVERTED_CHECKPOINT"
+export QUANTVLA_CONVERTED_MODE="$MODE"
+export QUANTVLA_CONVERTED_REPORT="$REPORT"
+export QUANTVLA_CONVERTED_STRICT="${QUANTVLA_CONVERTED_STRICT:-1}"
+export QUANTVLA_CONVERTED_DTYPE="${QUANTVLA_CONVERTED_DTYPE:-bfloat16}"
 
 echo "=========================================="
 echo "Starting QuantVLA-converted LIBERO server"
 echo "Mode: $MODE"
 echo "Task: $TASK"
+echo "Model: $MODEL_PATH"
 echo "Converted checkpoint: $CONVERTED_CHECKPOINT"
-echo "GR00T repo: $GR00T_REPO"
+echo "Data config: $DATA_CONFIG"
 echo "Port: $PORT"
 echo "Report: $REPORT"
 echo "=========================================="
 
-python "$SCRIPT_DIR/run_quantvla_converted_server.py" "$TASK" \
-    --converted-checkpoint "$CONVERTED_CHECKPOINT" \
-    --mode "$MODE" \
-    --port "$PORT" \
+python scripts/inference_service.py \
+    --model_path "$MODEL_PATH" \
+    --server \
+    --data_config "$DATA_CONFIG" \
     --denoising-steps "$DENOISING_STEPS" \
-    --replacement-report "$REPORT"
+    --port "$PORT" \
+    --embodiment-tag new_embodiment
