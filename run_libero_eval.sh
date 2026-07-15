@@ -3,40 +3,66 @@
 # Usage: ./run_libero_eval.sh [task_suite_name] [extra args...]
 # task_suite_name: libero_spatial (default), libero_goal, libero_object, libero_90, libero_10
 
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TASK=${1:-libero_10}
 shift || true
 EXTRA_ARGS=("$@")
 
 HEADLESS_FLAG="no"
+HAS_PORT="no"
 for arg in "${EXTRA_ARGS[@]}"; do
     if [[ "$arg" == "--headless" ]]; then
         HEADLESS_FLAG="yes"
-        break
+    fi
+    if [[ "$arg" == "--port" || "$arg" == --port=* ]]; then
+        HAS_PORT="yes"
     fi
 done
+PORT_VALUE="${PORT:-5556}"
 
-# Activate libero_test environment
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate libero_test
+# Reuse the user's active venv. Only activate conda when it exists.
+if [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+    conda activate "${LIBERO_CONDA_ENV:-libero_test}" || true
+fi
 
-# Add QuantVLA_GR00T and LIBERO to Python path
-export PYTHONPATH=/home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T:/home/jz97/VLM_REPO/Isaac-GR00T/LIBERO:$PYTHONPATH
+# Add this GR00T checkout and optional LIBERO checkout to Python path.
+export PYTHONPATH="$SCRIPT_DIR:${PYTHONPATH:-}"
+if [[ -n "${LIBERO_ROOT:-}" ]]; then
+    export PYTHONPATH="$LIBERO_ROOT:$PYTHONPATH"
+elif [[ -d "$HOME/private/LIBERO" ]]; then
+    export PYTHONPATH="$HOME/private/LIBERO:$PYTHONPATH"
+fi
 
 echo "=========================================="
 echo "Running Libero evaluation for $TASK"
 echo "Headless mode: $HEADLESS_FLAG"
-echo "Port: 5556 (GR00T)"
+if [[ "$HAS_PORT" == "yes" ]]; then
+    echo "Port: provided by extra args"
+else
+    echo "Port: $PORT_VALUE"
+fi
 echo "=========================================="
 echo ""
 echo "Make sure the inference server is running in another terminal!"
-echo "Run: ./run_inference_server.sh $TASK"
+echo "Run: bash run_quantvla_converted_server.sh real $TASK <converted_checkpoint> $PORT_VALUE"
 echo ""
 echo "Results will be saved to:"
 echo "  - Log: /tmp/logs/libero_eval_${TASK}.log"
+echo "  - Latency JSONL: /tmp/logs/libero_eval_${TASK}_latency_steps.jsonl"
+echo "  - Latency CSV: /tmp/logs/libero_eval_${TASK}_latency_steps.csv"
+echo "  - Latency summary: /tmp/logs/libero_eval_${TASK}_latency_summary.json"
 echo "  - Videos: /tmp/logs/rollout_*.mp4"
 echo "=========================================="
 echo ""
 
-cd /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T/examples/Libero/eval
+cd "$SCRIPT_DIR/examples/Libero/eval"
 
-python run_libero_eval.py --task_suite_name "$TASK" --port 5556 "${EXTRA_ARGS[@]}"
+CMD=(python run_libero_eval.py --task_suite_name "$TASK")
+if [[ "$HAS_PORT" == "no" ]]; then
+    CMD+=(--port "$PORT_VALUE")
+fi
+CMD+=("${EXTRA_ARGS[@]}")
+"${CMD[@]}"

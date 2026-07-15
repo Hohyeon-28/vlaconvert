@@ -15,6 +15,8 @@
 
 import io
 import json
+import os
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict
 
@@ -23,6 +25,10 @@ import numpy as np
 import zmq
 
 from gr00t.data.dataset import ModalityConfig
+
+
+def timing_enabled() -> bool:
+    return os.environ.get("GR00T_TIMING", "0") not in ("0", "false", "False")
 
 
 class MsgSerializer:
@@ -129,11 +135,18 @@ class BaseInferenceServer:
                     raise ValueError(f"Unknown endpoint: {endpoint}")
 
                 handler = self._endpoints[endpoint]
+                start_time = time.perf_counter()
                 result = (
                     handler.handler(request.get("data", {}))
                     if handler.requires_input
                     else handler.handler()
                 )
+                handler_ms = (time.perf_counter() - start_time) * 1000.0
+                if timing_enabled() and endpoint == "get_action" and isinstance(result, dict):
+                    result["__server_timing__"] = {
+                        "endpoint": endpoint,
+                        "handler_ms": handler_ms,
+                    }
                 self.socket.send(MsgSerializer.to_bytes(result))
             except Exception as e:
                 print(f"Error in server: {e}")
@@ -194,12 +207,19 @@ class BaseInferenceClient:
         if self.api_token:
             request["api_token"] = self.api_token
 
+        start_time = time.perf_counter()
         self.socket.send(MsgSerializer.to_bytes(request))
         message = self.socket.recv()
+        roundtrip_ms = (time.perf_counter() - start_time) * 1000.0
         response = MsgSerializer.from_bytes(message)
 
         if "error" in response:
             raise RuntimeError(f"Server error: {response['error']}")
+        if timing_enabled() and endpoint == "get_action" and isinstance(response, dict):
+            response["__client_timing__"] = {
+                "endpoint": endpoint,
+                "roundtrip_ms": roundtrip_ms,
+            }
         return response
 
     def __del__(self):

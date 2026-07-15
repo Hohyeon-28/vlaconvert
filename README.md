@@ -16,6 +16,22 @@ CUDA_VISIBLE_DEVICES=0 bash run_quantvla_converted_server.sh real libero_10 ./ou
 CUDA_VISIBLE_DEVICES=0 ./run_libero_eval.sh libero_10 --headless --port 5556
 ```
 
+LIBERO eval now records per-action-step latency by default:
+
+```text
+/tmp/logs/libero_eval_<suite>_latency_steps.jsonl
+/tmp/logs/libero_eval_<suite>_latency_steps.csv
+/tmp/logs/libero_eval_<suite>_latency_summary.json
+```
+
+The key timing fields are:
+
+- `client_roundtrip_ms`: eval client request -> server response.
+- `server_handler_ms`: server-side `get_action` endpoint time.
+- `policy_model_get_action_ms`: GR00T model action generation time.
+- `env_step_ms`: LIBERO simulator `env.step(action)` time.
+- `step_total_ms`: one measured action step, from policy query through env step.
+
 See `vlaconvert_tools/README.md` for details.
 
 <div align="center">

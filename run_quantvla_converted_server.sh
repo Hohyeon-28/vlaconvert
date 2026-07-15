@@ -86,6 +86,7 @@ export QUANTVLA_CONVERTED_MODE="$MODE"
 export QUANTVLA_CONVERTED_REPORT="$REPORT"
 export QUANTVLA_CONVERTED_STRICT="${QUANTVLA_CONVERTED_STRICT:-1}"
 export QUANTVLA_CONVERTED_DTYPE="${QUANTVLA_CONVERTED_DTYPE:-bfloat16}"
+export GR00T_TIMING="${GR00T_TIMING:-1}"
 
 echo "=========================================="
 echo "Starting QuantVLA-converted LIBERO server"
@@ -96,6 +97,7 @@ echo "Converted checkpoint: $CONVERTED_CHECKPOINT"
 echo "Data config: $DATA_CONFIG"
 echo "Port: $PORT"
 echo "Report: $REPORT"
+echo "GR00T timing: $GR00T_TIMING"
 echo "=========================================="
 
 python scripts/inference_service.py \

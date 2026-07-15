@@ -15,6 +15,7 @@
 
 import json
 import os
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -32,6 +33,10 @@ from gr00t.data.transform.base import ComposedModalityTransform
 from gr00t.model.gr00t_n1 import GR00T_N1_5
 
 COMPUTE_DTYPE = torch.bfloat16
+
+
+def timing_enabled() -> bool:
+    return os.environ.get("GR00T_TIMING", "0") not in ("0", "false", "False")
 
 
 class BasePolicy(ABC):
@@ -167,6 +172,10 @@ class Gr00tPolicy(BasePolicy):
         Returns:
             Dict[str, Any]: The predicted action.
         """
+        timing = {}
+        policy_start = time.perf_counter()
+        prepare_start = time.perf_counter()
+
         # Create a copy to avoid mutating input
         obs_copy = observations.copy()
 
@@ -178,19 +187,39 @@ class Gr00tPolicy(BasePolicy):
         for k, v in obs_copy.items():
             if not isinstance(v, np.ndarray):
                 obs_copy[k] = np.array(v)
+        if timing_enabled():
+            timing["policy_prepare_input_ms"] = (time.perf_counter() - prepare_start) * 1000.0
 
+        transform_start = time.perf_counter()
         normalized_input = self.apply_transforms(obs_copy)
+        if timing_enabled():
+            timing["policy_apply_transforms_ms"] = (time.perf_counter() - transform_start) * 1000.0
+
         normalized_action = self._get_action_from_normalized_input(normalized_input)
+        if timing_enabled() and hasattr(self, "_last_model_timing"):
+            timing.update(self._last_model_timing)
+
+        unapply_start = time.perf_counter()
         unnormalized_action = self._get_unnormalized_action(normalized_action)
+        if timing_enabled():
+            timing["policy_unapply_transforms_ms"] = (time.perf_counter() - unapply_start) * 1000.0
 
         if not is_batch:
             unnormalized_action = squeeze_dict_values(unnormalized_action)
+        if timing_enabled():
+            timing["policy_total_ms"] = (time.perf_counter() - policy_start) * 1000.0
+            unnormalized_action["__policy_timing__"] = timing
         return unnormalized_action
 
     def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any]) -> torch.Tensor:
         # Set up autocast context if needed
+        model_start = time.perf_counter()
         with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
             model_pred = self.model.get_action(normalized_input)
+        if timing_enabled():
+            self._last_model_timing = {
+                "policy_model_get_action_ms": (time.perf_counter() - model_start) * 1000.0
+            }
 
         normalized_action = model_pred["action_pred"].float()
         return normalized_action

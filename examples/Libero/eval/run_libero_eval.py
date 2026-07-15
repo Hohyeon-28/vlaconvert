@@ -1,5 +1,9 @@
+import csv
+import json
 import os
 import pprint
+import statistics
+import time
 from dataclasses import dataclass
 
 import cv2
@@ -20,6 +24,77 @@ from examples.Libero.eval.utils import (
 
 log_dir = "/tmp/logs"
 os.makedirs(log_dir, exist_ok=True)  # ensures directory exists
+
+
+LATENCY_METRIC_KEYS = [
+    "obs_preprocess_ms",
+    "client_get_action_ms",
+    "client_roundtrip_ms",
+    "server_handler_ms",
+    "policy_total_ms",
+    "policy_prepare_input_ms",
+    "policy_apply_transforms_ms",
+    "policy_model_get_action_ms",
+    "policy_unapply_transforms_ms",
+    "action_convert_ms",
+    "env_step_ms",
+    "step_total_ms",
+]
+
+
+def _percentile(values, percentile):
+    if not values:
+        return None
+    ordered = sorted(values)
+    idx = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * percentile / 100.0)))
+    return ordered[idx]
+
+
+def summarize_latency(records):
+    summary = {"num_action_steps": len(records)}
+    for key in LATENCY_METRIC_KEYS:
+        values = [float(item[key]) for item in records if item.get(key) is not None]
+        if not values:
+            continue
+        summary[key] = {
+            "mean": statistics.mean(values),
+            "median": statistics.median(values),
+            "p90": _percentile(values, 90),
+            "p99": _percentile(values, 99),
+            "min": min(values),
+            "max": max(values),
+        }
+    return summary
+
+
+def write_latency_csv(path, records):
+    if not records:
+        return
+    fieldnames = sorted({key for item in records for key in item.keys()})
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(records)
+
+
+def log_latency_summary(prefix, records, log_file):
+    summary = summarize_latency(records)
+    if not records:
+        print(f"{prefix} latency: no action steps recorded")
+        log_file.write(f"{prefix} latency: no action steps recorded\n")
+        return summary
+    step = summary.get("step_total_ms", {})
+    request = summary.get("client_roundtrip_ms", {})
+    model = summary.get("policy_model_get_action_ms", {})
+    line = (
+        f"{prefix} latency: "
+        f"step_mean={step.get('mean', 0.0):.2f}ms, step_p90={step.get('p90', 0.0):.2f}ms, "
+        f"request_mean={request.get('mean', 0.0):.2f}ms, "
+        f"model_mean={model.get('mean', 0.0):.2f}ms"
+    )
+    print(line)
+    log_file.write(line + "\n")
+    return summary
 
 
 def summarize_obs(obs_dict):
@@ -68,6 +143,10 @@ class GenerateConfig:
     task_ids: list[int] | None = None
     """Run tasks in this explicit order."""
     task_order: list[int] | None = None
+    """Record per-action latency JSONL/CSV and summary files."""
+    record_timing: bool = True
+    """Print latency progress every N action steps. 0 disables progress prints."""
+    timing_print_every: int = 100
 
 
 class GR00TPolicy:
@@ -93,13 +172,35 @@ class GR00TPolicy:
         self.config = self.LIBERO_CONFIG
         self.action_keys = ["x", "y", "z", "roll", "pitch", "yaw", "gripper"]
         self.headless = headless
+        self.last_timing = {}
 
     def get_action(self, observation_dict, lang: str):
         """Get action from GR00T policy given observation and language instruction."""
+        total_start = time.perf_counter()
+        preprocess_start = time.perf_counter()
         obs_dict = self._process_observation(observation_dict, lang)
+        obs_preprocess_ms = (time.perf_counter() - preprocess_start) * 1000.0
         # summarize_obs(obs_dict)
+        client_start = time.perf_counter()
         action_chunk = self.policy.get_action(obs_dict)
-        return self._convert_to_libero_action(action_chunk, 0)
+        client_get_action_ms = (time.perf_counter() - client_start) * 1000.0
+        convert_start = time.perf_counter()
+        action = self._convert_to_libero_action(action_chunk, 0)
+        action_convert_ms = (time.perf_counter() - convert_start) * 1000.0
+
+        server_timing = action_chunk.get("__server_timing__", {})
+        client_timing = action_chunk.get("__client_timing__", {})
+        policy_timing = action_chunk.get("__policy_timing__", {})
+        self.last_timing = {
+            "obs_preprocess_ms": obs_preprocess_ms,
+            "client_get_action_ms": client_get_action_ms,
+            "client_roundtrip_ms": client_timing.get("roundtrip_ms"),
+            "server_handler_ms": server_timing.get("handler_ms"),
+            "action_convert_ms": action_convert_ms,
+            "action_call_total_ms": (time.perf_counter() - total_start) * 1000.0,
+        }
+        self.last_timing.update(policy_timing)
+        return action
 
     def _process_observation(self, obs, lang: str):
         """Convert Libero observation to GR00T format."""
@@ -152,6 +253,17 @@ def eval_libero(cfg: GenerateConfig) -> None:
     print(f"Task suite: {cfg.task_suite_name}")
     log_file = open(f"{log_dir}/libero_eval_{cfg.task_suite_name}.log", "w")
     log_file.write(f"Task suite: {cfg.task_suite_name}\n")
+    latency_records = []
+    task_latency_summaries = {}
+    latency_jsonl_file = None
+    latency_jsonl_path = f"{log_dir}/libero_eval_{cfg.task_suite_name}_latency_steps.jsonl"
+    latency_csv_path = f"{log_dir}/libero_eval_{cfg.task_suite_name}_latency_steps.csv"
+    latency_summary_path = f"{log_dir}/libero_eval_{cfg.task_suite_name}_latency_summary.json"
+    if cfg.record_timing:
+        latency_jsonl_file = open(latency_jsonl_path, "w")
+        log_file.write(f"Latency JSONL: {latency_jsonl_path}\n")
+        log_file.write(f"Latency CSV: {latency_csv_path}\n")
+        log_file.write(f"Latency summary: {latency_summary_path}\n")
 
     # Decide which task indices to run
     if cfg.task_ids:
@@ -167,6 +279,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
     # Start evaluation
     total_episodes, total_successes = 0, 0
     for task_id in tqdm.tqdm(task_indices):
+        task_latency_records = []
         # Get task
         task = task_suite.get_task(task_id)
 
@@ -182,6 +295,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
         task_episodes, task_successes = 0, 0
         max_trials = min(cfg.num_trials_per_task, len(initial_states))
         for episode_idx in tqdm.tqdm(range(max_trials)):
+            episode_latency_records = []
             print(f"\nTask: {task_description}")
             log_file.write(f"\nTask: {task_description}\n")
 
@@ -208,6 +322,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
 
             print(f"Starting episode {task_episodes+1}...")
             log_file.write(f"Starting episode {task_episodes+1}...\n")
+            done = False
             while t < max_steps + cfg.num_steps_wait:
                 try:
                     # IMPORTANT: Do nothing for the first few timesteps because the simulator drops objects
@@ -224,6 +339,9 @@ def eval_libero(cfg: GenerateConfig) -> None:
                     top_view.append(img)
                     wrist_view.append(wrist_img)
 
+                    action_step_index = t - cfg.num_steps_wait
+                    step_start = time.perf_counter()
+
                     # Query model to get action
                     action = gr00t_policy.get_action(
                         obs,
@@ -231,7 +349,43 @@ def eval_libero(cfg: GenerateConfig) -> None:
                     )
 
                     # Execute action in environment
+                    env_step_start = time.perf_counter()
                     obs, reward, done, info = env.step(action.tolist())
+                    env_step_ms = (time.perf_counter() - env_step_start) * 1000.0
+                    step_total_ms = (time.perf_counter() - step_start) * 1000.0
+
+                    if cfg.record_timing:
+                        timing_record = {
+                            "task_suite": cfg.task_suite_name,
+                            "task_id": task_id,
+                            "task_description": task_description,
+                            "episode_idx": episode_idx,
+                            "global_episode": total_episodes + 1,
+                            "sim_t": t,
+                            "action_step_index": action_step_index,
+                            "done": bool(done),
+                            "reward": float(reward),
+                            "env_step_ms": env_step_ms,
+                            "step_total_ms": step_total_ms,
+                        }
+                        timing_record.update(gr00t_policy.last_timing)
+                        latency_records.append(timing_record)
+                        task_latency_records.append(timing_record)
+                        episode_latency_records.append(timing_record)
+                        if latency_jsonl_file is not None:
+                            latency_jsonl_file.write(json.dumps(timing_record) + "\n")
+                            if cfg.timing_print_every and len(latency_records) % cfg.timing_print_every == 0:
+                                latency_jsonl_file.flush()
+                        if cfg.timing_print_every and len(latency_records) % cfg.timing_print_every == 0:
+                            request_ms = timing_record.get("client_roundtrip_ms") or 0.0
+                            model_ms = timing_record.get("policy_model_get_action_ms") or 0.0
+                            print(
+                                f"[latency] steps={len(latency_records)} "
+                                f"step_total={step_total_ms:.2f}ms "
+                                f"request={request_ms:.2f}ms "
+                                f"model={model_ms:.2f}ms"
+                            )
+
                     if done:
                         task_successes += 1
                         total_successes += 1
@@ -265,6 +419,8 @@ def eval_libero(cfg: GenerateConfig) -> None:
             log_file.write(
                 f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)\n"
             )
+            if cfg.record_timing:
+                log_latency_summary("Episode", episode_latency_records, log_file)
             log_file.flush()
 
         # Log final results
@@ -276,7 +432,39 @@ def eval_libero(cfg: GenerateConfig) -> None:
         log_file.write(
             f"Current total success rate: {float(total_successes) / float(total_episodes)}\n"
         )
+        if cfg.record_timing:
+            task_latency_summaries[str(task_id)] = {
+                "task_description": task_description,
+                "summary": log_latency_summary("Task", task_latency_records, log_file),
+            }
         log_file.flush()
+
+    if cfg.record_timing:
+        if latency_jsonl_file is not None:
+            latency_jsonl_file.close()
+        write_latency_csv(latency_csv_path, latency_records)
+        latency_summary = {
+            "task_suite": cfg.task_suite_name,
+            "num_tasks": len(task_indices),
+            "num_episodes": total_episodes,
+            "num_successes": total_successes,
+            "success_rate": float(total_successes) / float(total_episodes) if total_episodes else 0.0,
+            "overall": summarize_latency(latency_records),
+            "tasks": task_latency_summaries,
+            "files": {
+                "jsonl": latency_jsonl_path,
+                "csv": latency_csv_path,
+                "summary": latency_summary_path,
+            },
+        }
+        with open(latency_summary_path, "w") as f:
+            json.dump(latency_summary, f, indent=2)
+        print(f"Saved latency JSONL at {latency_jsonl_path}")
+        print(f"Saved latency CSV at {latency_csv_path}")
+        print(f"Saved latency summary at {latency_summary_path}")
+        log_file.write(f"Saved latency JSONL at {latency_jsonl_path}\n")
+        log_file.write(f"Saved latency CSV at {latency_csv_path}\n")
+        log_file.write(f"Saved latency summary at {latency_summary_path}\n")
 
     # Save local log file
     log_file.close()
