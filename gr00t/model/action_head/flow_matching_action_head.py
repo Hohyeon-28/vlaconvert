@@ -212,7 +212,12 @@ class FlowmatchingActionHead(nn.Module):
             self.position_embedding = nn.Embedding(config.max_seq_len, self.input_embedding_dim)
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        # from_pretrained may instantiate modules under a meta-device context.
+        # Beta's argument validation calls Tensor.item(), which is invalid for
+        # meta tensors; the config values are static scalars, so skip that check.
+        self.beta_dist = Beta(
+            config.noise_beta_alpha, config.noise_beta_beta, validate_args=False
+        )
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
         self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
