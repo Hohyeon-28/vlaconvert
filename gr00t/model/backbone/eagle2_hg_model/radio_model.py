@@ -44,12 +44,23 @@ from transformers.utils import ModelOutput
 
 try:  # v1
     from flash_attn.flash_attn_interface import flash_attn_unpadded_qkvpacked_func
-except ImportError:  # v2
-    from flash_attn.flash_attn_interface import (
-        flash_attn_varlen_qkvpacked_func as flash_attn_unpadded_qkvpacked_func,
-    )
+    from flash_attn.bert_padding import pad_input, unpad_input
 
-from flash_attn.bert_padding import pad_input, unpad_input
+    _FLASH_ATTN_AVAILABLE = True
+except Exception as flash_attn_error:
+    try:  # v2
+        from flash_attn.flash_attn_interface import (
+            flash_attn_varlen_qkvpacked_func as flash_attn_unpadded_qkvpacked_func,
+        )
+        from flash_attn.bert_padding import pad_input, unpad_input
+
+        _FLASH_ATTN_AVAILABLE = True
+    except Exception as flash_attn_v2_error:
+        flash_attn_unpadded_qkvpacked_func = None
+        pad_input = None
+        unpad_input = None
+        _FLASH_ATTN_AVAILABLE = False
+        _FLASH_ATTN_IMPORT_ERROR = flash_attn_v2_error or flash_attn_error
 
 
 class FlashAttention(nn.Module):
@@ -180,7 +191,13 @@ def replace_vit_attn_with_flash_attn():
     Attention._flash_attn = _flash_attn
 
 
-replace_vit_attn_with_flash_attn()
+if _FLASH_ATTN_AVAILABLE:
+    replace_vit_attn_with_flash_attn()
+else:
+    warnings.warn(
+        "flash-attn could not be imported; using the default timm ViT attention instead. "
+        f"Original error: {_FLASH_ATTN_IMPORT_ERROR}"
+    )
 ####
 
 
