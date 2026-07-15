@@ -63,6 +63,15 @@ def build_eagle_processor(eagle_path: str) -> ProcessorMixin:
         backend="pil",
         fix_mistral_regex=True,
     )
+    if not getattr(eagle_processor.image_processor, "_gr00t_drop_video_kwarg", False):
+        original_preprocess = eagle_processor.image_processor.preprocess
+
+        def preprocess_without_video_kwarg(*args, **kwargs):
+            kwargs.pop("videos", None)
+            return original_preprocess(*args, **kwargs)
+
+        eagle_processor.image_processor.preprocess = preprocess_without_video_kwarg
+        eagle_processor.image_processor._gr00t_drop_video_kwarg = True
     eagle_processor.tokenizer.padding_side = "left"
     return eagle_processor
 
