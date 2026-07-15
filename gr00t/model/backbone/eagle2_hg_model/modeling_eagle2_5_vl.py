@@ -28,6 +28,12 @@ from .radio_model import RADIOModel
 logger = logging.get_logger(__name__)
 
 
+def _force_eager_attention(config):
+    config._attn_implementation = "eager"
+    config._attn_implementation_internal = "eager"
+    config._attn_implementation_autoset = False
+
+
 # copy from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llava_onevision/modeling_llava_onevision.py#L241C1-L280C1
 EAGLE2_5_VL_START_DOCSTRING = r"""
     This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
@@ -104,11 +110,13 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
         self.mlp_connector_layers = config.mlp_connector_layers
         logger.info(f"num_image_token: {self.num_image_token}")
         logger.info(f"mlp_checkpoint: {self.mlp_checkpoint}")
+        _force_eager_attention(config)
+        _force_eager_attention(config.vision_config)
+        _force_eager_attention(config.text_config)
         if vision_model is not None:
             self.vision_model = vision_model
         else:
             if config.vision_config.model_type == "siglip_vision_model":
-                config.vision_config._attn_implementation = "flash_attention_2"
                 self.vision_model = SiglipVisionModel(config.vision_config)
             elif config.vision_config.model_type == "radio":
                 self.vision_model = RADIOModel(config.vision_config)
@@ -124,9 +132,6 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
                 raise NotImplementedError("Phi3 is not implemented.")
                 # self.language_model = Phi3ForCausalLM(config.text_config)
             elif config.text_config.architectures[0] == "Qwen2ForCausalLM":
-                assert (
-                    config.text_config._attn_implementation == "flash_attention_2"
-                ), f"Qwen2 must use flash_attention_2 but got {config.text_config._attn_implementation}"
                 self.language_model = Qwen2ForCausalLM(config.text_config)
             elif config.text_config.architectures[0] == "Qwen3ForCausalLM":
                 self.language_model = Qwen3ForCausalLM(config.text_config)
