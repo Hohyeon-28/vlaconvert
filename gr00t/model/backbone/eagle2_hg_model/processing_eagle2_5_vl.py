@@ -408,7 +408,6 @@ class Eagle2_5_VLProcessor(ProcessorMixin):
                 if media_type == "image":
                     image_inputs = self.image_processor(
                         images=[image_list[idx_in_list]],
-                        videos=None,
                         **output_kwargs["images_kwargs"],
                     )
                     num_all_tiles = image_inputs["pixel_values"].shape[0]
