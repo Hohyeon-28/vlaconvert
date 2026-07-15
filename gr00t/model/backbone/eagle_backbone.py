@@ -33,6 +33,12 @@ DEFAULT_EAGLE_PATH = os.path.join(
 )
 
 
+def _force_eager_attention(config):
+    config._attn_implementation = "eager"
+    config._attn_implementation_internal = "eager"
+    config._attn_implementation_autoset = False
+
+
 class EagleBackbone(nn.Module):
 
     def __init__(
@@ -57,12 +63,12 @@ class EagleBackbone(nn.Module):
         config = AutoConfig.from_pretrained(DEFAULT_EAGLE_PATH, trust_remote_code=True)
         # The bundled EAGLE config requests FlashAttention-2, but the original
         # GR00T/QuantVLA environment can run without a compatible flash-attn
-        # binary. Force the standard SDPA path for inference compatibility.
-        config._attn_implementation = "sdpa"
+        # binary. Force the standard eager path for inference compatibility.
+        _force_eager_attention(config)
         if hasattr(config, "text_config"):
-            config.text_config._attn_implementation = "sdpa"
+            _force_eager_attention(config.text_config)
         if hasattr(config, "vision_config"):
-            config.vision_config._attn_implementation = "sdpa"
+            _force_eager_attention(config.vision_config)
         self.eagle_model = AutoModel.from_config(config, trust_remote_code=True)
 
         if project_to_dim is not None:
