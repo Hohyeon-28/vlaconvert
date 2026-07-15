@@ -9,7 +9,6 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.utils.checkpoint as cp
-from peft import LoraConfig, get_peft_model
 from torch import nn
 from torch.nn import CrossEntropyLoss
 from transformers import GenerationConfig
@@ -178,6 +177,8 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
         assert not any(k.kind == inspect.Parameter.VAR_KEYWORD for k in forward_params.values())
 
     def wrap_backbone_lora(self, r=128, lora_alpha=256, lora_dropout=0.05):
+        from peft import LoraConfig, get_peft_model
+
         lora_config = LoraConfig(
             r=r,
             target_modules=[
@@ -195,6 +196,8 @@ class Eagle2_5_VLForConditionalGeneration(Eagle2_5_VLPreTrainedModel, Generation
         self.vision_model.print_trainable_parameters()
 
     def wrap_llm_lora(self, r=128, lora_alpha=256, lora_dropout=0.05):
+        from peft import LoraConfig, get_peft_model
+
         lora_config = LoraConfig(
             r=r,
             target_modules=[
