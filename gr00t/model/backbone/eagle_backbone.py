@@ -17,9 +17,16 @@ import os
 import torch
 from torch import nn
 from transformers import AutoConfig, AutoModel
+from transformers import image_utils as _transformers_image_utils
 from transformers.feature_extraction_utils import BatchFeature
 
 import gr00t
+
+if not hasattr(_transformers_image_utils, "VideoInput"):
+    # EAGLE remote-code modules import VideoInput for typing. Some pinned
+    # transformers versions used by the original GR00T/QuantVLA environment do
+    # not expose it, so provide a harmless compatibility alias.
+    _transformers_image_utils.VideoInput = list
 
 DEFAULT_EAGLE_PATH = os.path.join(
     os.path.dirname(gr00t.__file__), "model", "backbone", "eagle2_hg_model"

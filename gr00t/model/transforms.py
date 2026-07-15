@@ -24,6 +24,7 @@ from einops import rearrange
 from PIL import Image
 from pydantic import Field, PrivateAttr
 from transformers import AutoProcessor, ProcessorMixin
+from transformers import image_utils as _transformers_image_utils
 from transformers.data.data_collator import DataCollatorMixin
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -32,6 +33,13 @@ from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import InvertibleModalityTransform
 
 from .backbone.eagle_backbone import DEFAULT_EAGLE_PATH
+
+
+if not hasattr(_transformers_image_utils, "VideoInput"):
+    # Older transformers builds do not expose VideoInput, while the EAGLE
+    # processor's remote-code module imports it for typing.  Runtime behavior
+    # only needs the image/video input aliases to exist.
+    _transformers_image_utils.VideoInput = list
 
 
 def formalize_language(language: str) -> str:
