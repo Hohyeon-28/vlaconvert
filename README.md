@@ -54,6 +54,19 @@ files into Marlin files.
   - Uses `triton.testing.do_bench` when Triton is available.
   - Falls back to CUDA events or `time.perf_counter`.
 
+- `quantvla_policy_patch.py`
+  - Replaces GR00T language-model `nn.Linear` layers with converted QuantVLA
+    FakeQuant or RealQuant wrappers.
+  - Prints exact replacement counts for LIBERO accuracy runs.
+
+- `run_quantvla_converted_server.py`
+  - Starts a GR00T inference server and applies the converted QuantVLA patch.
+
+- `run_quantvla_converted_server.sh`
+  - Shell wrapper for LIBERO runs.
+  - Reuses an existing `QuantVLA_marlin` or `QuantVLA` checkout through
+    `GR00T_REPO`.
+
 - `quantvla_marlin_utils.py`
   - Shared pack loading, transform, quantization, and GPTQ-like packing helpers.
 
@@ -182,6 +195,71 @@ The FakeQuant/RealQuant benchmark records:
 
 These are layer-level synthetic activation metrics. They are not LIBERO success
 rate.
+
+## LIBERO Accuracy
+
+The converter and benchmark alone do not run LIBERO. To measure LIBERO success
+rate, start the transform-aware QuantVLA-converted inference server, then run
+the existing LIBERO evaluator against its port.
+
+RealQuant server:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash run_quantvla_converted_server.sh \
+  real \
+  libero_10 \
+  ./outputs/libero_10_quantvla_gptq_like \
+  5556
+```
+
+FakeQuant server:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash run_quantvla_converted_server.sh \
+  fake \
+  libero_10 \
+  ./outputs/libero_10_quantvla_gptq_like \
+  5557
+```
+
+If your GR00T checkout is not at `~/private/QuantVLA_marlin` or
+`~/private/QuantVLA`, set it explicitly:
+
+```bash
+export GR00T_REPO=/home/hohyeon/private/QuantVLA_marlin
+```
+
+In another terminal, run LIBERO eval from the existing GR00T/QuantVLA repo:
+
+```bash
+cd /home/hohyeon/private/QuantVLA_marlin
+CUDA_VISIBLE_DEVICES=0 ./run_libero_eval.sh libero_10 --headless --port 5556
+```
+
+The LIBERO success rate is still produced by the existing evaluator log:
+
+```bash
+cat /tmp/logs/libero_eval_libero_10.log
+```
+
+The replacement report is written to:
+
+```text
+/tmp/logs/quantvla_converted_real_libero_10_replacement_report.json
+```
+
+A valid accuracy run should show:
+
+```text
+Target Linear layers: N
+Successfully replaced: N
+Unmatched checkpoint keys: 0
+Unreplaced target layers: 0
+Fallback FP16 layers: 0
+```
+
+If `RealQuant` fails, check the report and terminal output. Common causes are
+missing vLLM GPTQ-Marlin support or a shape/layout mismatch that vLLM refuses.
 
 ## What This Does Not Yet Do
 

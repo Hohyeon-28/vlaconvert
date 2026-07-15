@@ -202,17 +202,14 @@ class QuantVLARealQuantMarlinLinear(nn.Module):
                 "Install vllm in this environment, or run only FakeQuant."
             ) from exc
 
-        cfg = dict(pack.layer_info)
-        cfg.update(
-            {
-                "quant_method": "gptq",
-                "bits": int(pack.layer_info.get("bits", 4)),
-                "group_size": int(pack.layer_info.get("group_size", 128)),
-                "desc_act": False,
-                "sym": True,
-                "lm_head": False,
-            }
-        )
+        cfg = {
+            "quant_method": "gptq",
+            "bits": int(pack.layer_info.get("bits", 4)),
+            "group_size": int(pack.layer_info.get("group_size", 128)),
+            "desc_act": False,
+            "sym": True,
+            "lm_head": False,
+        }
         self.quant_config = GPTQMarlinConfig.from_config(cfg)
         self.quant_method = GPTQMarlinLinearMethod(self.quant_config)
         self.quant_method.create_weights(
