@@ -1,6 +1,6 @@
 {
     "auto_map": {
-        "AutoImageProcessor": "image_processing_eagle2_5_vl_fast.Eagle2_5_VLImageProcessorFast",
+        "AutoImageProcessor": "image_processing_eagle2.Eagle2ImageProcessor",
         "AutoProcessor": "processing_eagle2_5_vl.Eagle2_5_VLProcessor"
     },
     "image_end_token": "</img>",
