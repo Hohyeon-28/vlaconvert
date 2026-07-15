@@ -8,6 +8,7 @@ loading.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
@@ -26,6 +27,37 @@ DEFAULT_INCLUDE = (
 DEFAULT_EXCLUDE = r"(?:^|\.)(vision|radio|embed|lm_head|action_head)(?:\.|$)"
 GPTQ_QUANT_MODE_REAL = "real"
 GPTQ_QUANT_MODE_FAKE = "fake"
+
+
+def _load_vllm_gptq_marlin_symbols() -> tuple[type, type, str]:
+    module_names = [
+        "vllm.model_executor.layers.quantization.gptq_marlin",
+    ]
+    errors: list[str] = []
+    for module_name in module_names:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception as exc:  # pragma: no cover - environment dependent
+            errors.append(f"{module_name}: import failed: {type(exc).__name__}: {exc}")
+            continue
+
+        config_cls = getattr(module, "GPTQMarlinConfig", None)
+        method_cls = getattr(module, "GPTQMarlinLinearMethod", None)
+        if config_cls is not None and method_cls is not None:
+            return config_cls, method_cls, module_name
+
+        marlin_exports = sorted(name for name in dir(module) if "Marlin" in name or "marlin" in name)
+        errors.append(
+            f"{module_name}: missing GPTQMarlinConfig/GPTQMarlinLinearMethod; "
+            f"marlin exports={marlin_exports}"
+        )
+
+    raise RuntimeError(
+        "Could not load vLLM GPTQ-Marlin Linear API. "
+        "This usually means the installed vLLM build has a different internal API "
+        "or was built without the required Marlin components.\n"
+        + "\n".join(errors)
+    )
 
 
 @dataclass
@@ -202,14 +234,12 @@ class GPTQMarlinLinear(nn.Module):
 
     def _init_vllm_method(self, quant_config: dict) -> None:
         try:
-            from vllm.model_executor.layers.quantization.gptq_marlin import (
-                GPTQMarlinConfig,
-                GPTQMarlinLinearMethod,
-            )
+            GPTQMarlinConfig, GPTQMarlinLinearMethod, module_name = _load_vllm_gptq_marlin_symbols()
         except Exception as exc:  # pragma: no cover - environment dependent
             raise RuntimeError(
-                "vLLM with GPTQ-Marlin support is required for GPTQMarlinLinear. "
-                "Install vllm in this environment, or unset GR00T_GPTQ_MARLIN_CHECKPOINT."
+                "vLLM is installed only if Python can import it, but RealQuant also "
+                "needs vLLM's internal GPTQ-Marlin Linear API. "
+                f"Probe it with: python vlaconvert_tools/probe_vllm_marlin.py. Details: {exc}"
             ) from exc
 
         cfg = dict(quant_config)
@@ -220,6 +250,7 @@ class GPTQMarlinLinear(nn.Module):
         cfg.setdefault("sym", True)
         cfg.setdefault("lm_head", False)
 
+        self.vllm_marlin_module = module_name
         self.quant_config = GPTQMarlinConfig.from_config(cfg)
         self.quant_method = GPTQMarlinLinearMethod(self.quant_config)
         self.quant_method.create_weights(
