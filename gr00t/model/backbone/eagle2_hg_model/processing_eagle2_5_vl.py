@@ -25,6 +25,7 @@ import time
 import warnings
 from functools import lru_cache
 from io import BytesIO
+from collections.abc import Mapping
 from typing import Any, List, Literal, Optional, Union
 
 import requests
@@ -844,7 +845,12 @@ class Eagle2_5_VLProcessor(ProcessorMixin):
             if hasattr(processor, key):
                 setattr(processor, key, kwargs.pop(key))
 
-        kwargs.update(unused_kwargs)
+        if isinstance(unused_kwargs, Mapping):
+            kwargs.update(unused_kwargs)
+        elif unused_kwargs:
+            for key in unused_kwargs:
+                if key in processor_dict:
+                    kwargs[key] = processor_dict[key]
         logger.info(f"Processor {processor}")
         if return_unused_kwargs:
             return processor, kwargs
