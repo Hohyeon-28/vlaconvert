@@ -848,9 +848,11 @@ class Eagle2_5_VLProcessor(ProcessorMixin):
         if isinstance(unused_kwargs, Mapping):
             kwargs.update(unused_kwargs)
         elif unused_kwargs:
-            for key in unused_kwargs:
-                if key in processor_dict:
-                    kwargs[key] = processor_dict[key]
+            for item in unused_kwargs:
+                if isinstance(item, Mapping):
+                    kwargs.update(item)
+                elif isinstance(item, str) and item in processor_dict:
+                    kwargs[item] = processor_dict[item]
         logger.info(f"Processor {processor}")
         if return_unused_kwargs:
             return processor, kwargs

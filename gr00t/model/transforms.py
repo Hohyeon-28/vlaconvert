@@ -57,7 +57,11 @@ def build_eagle_processor(eagle_path: str) -> ProcessorMixin:
         # Keep the original GR00T/QuantVLA environment compatible with newer
         # EAGLE processor metadata.  The fast image processor path imports
         # symbols that are missing in some pinned transformers builds.
-        eagle_path, trust_remote_code=True, use_fast=False, backend="pil"
+        eagle_path,
+        trust_remote_code=True,
+        use_fast=False,
+        backend="pil",
+        fix_mistral_regex=True,
     )
     eagle_processor.tokenizer.padding_side = "left"
     return eagle_processor
