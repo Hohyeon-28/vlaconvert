@@ -4,9 +4,28 @@
 from __future__ import annotations
 
 import importlib
-import pkgutil
 import sys
 import traceback
+from pathlib import Path
+
+
+def discover_candidate_modules(vllm_module) -> list[str]:
+    """Find likely GPTQ-Marlin modules without importing the whole vLLM tree."""
+
+    candidates = ["vllm.model_executor.layers.quantization.gptq_marlin"]
+    package_file = getattr(vllm_module, "__file__", None)
+    if not package_file:
+        return candidates
+
+    package_root = Path(package_file).resolve().parent
+    for path in package_root.rglob("*.py"):
+        lower_full = str(path).lower()
+        if "gptq" not in lower_full or "marlin" not in lower_full:
+            continue
+        rel = path.relative_to(package_root).with_suffix("")
+        module_name = "vllm." + ".".join(rel.parts)
+        candidates.append(module_name)
+    return list(dict.fromkeys(candidates))
 
 
 def main() -> int:
@@ -19,19 +38,7 @@ def main() -> int:
     print(f"vLLM version: {getattr(vllm, '__version__', '<unknown>')}")
     print(f"vLLM package: {getattr(vllm, '__file__', '<unknown>')}")
 
-    expected = "vllm.model_executor.layers.quantization.gptq_marlin"
-    candidates = [expected]
-    try:
-        discovered = [
-            mod.name
-            for mod in pkgutil.walk_packages(vllm.__path__, prefix="vllm.")
-            if "marlin" in mod.name.lower() and "gptq" in mod.name.lower()
-        ]
-        candidates.extend(discovered)
-    except Exception as exc:
-        print(f"Module discovery failed: {type(exc).__name__}: {exc}")
-
-    candidates = list(dict.fromkeys(candidates))
+    candidates = discover_candidate_modules(vllm)
     print("Candidate modules:")
     for name in candidates:
         print(f"  - {name}")

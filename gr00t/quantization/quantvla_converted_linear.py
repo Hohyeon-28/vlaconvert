@@ -46,11 +46,28 @@ def _load_vllm_gptq_marlin_symbols() -> tuple[type, type, str]:
     expects.
     """
 
-    module_names = [
-        "vllm.model_executor.layers.quantization.gptq_marlin",
-    ]
+    module_names = ["vllm.model_executor.layers.quantization.gptq_marlin"]
+    try:
+        import vllm
+
+        package_file = getattr(vllm, "__file__", None)
+        if package_file:
+            package_root = Path(package_file).resolve().parent
+            for path in package_root.rglob("*.py"):
+                lower_full = str(path).lower()
+                if "gptq" not in lower_full or "marlin" not in lower_full:
+                    continue
+                rel = path.relative_to(package_root).with_suffix("")
+                module_names.append("vllm." + ".".join(rel.parts))
+    except Exception as exc:  # pragma: no cover - environment dependent
+        module_names.append(f"<vllm discovery failed: {type(exc).__name__}: {exc}>")
+    module_names = list(dict.fromkeys(module_names))
+
     errors: list[str] = []
     for module_name in module_names:
+        if module_name.startswith("<"):
+            errors.append(module_name)
+            continue
         try:
             module = importlib.import_module(module_name)
         except Exception as exc:  # pragma: no cover - environment dependent
