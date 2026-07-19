@@ -147,6 +147,10 @@ class GenerateConfig:
     record_timing: bool = True
     """Print latency progress every N action steps. 0 disables progress prints."""
     timing_print_every: int = 100
+    """Optional suffix for log/latency files, e.g. fake or real."""
+    result_tag: str = ""
+    """Directory for eval logs and latency files."""
+    result_dir: str = log_dir
 
 
 class GR00TPolicy:
@@ -246,19 +250,29 @@ class GR00TPolicy:
 
 
 def eval_libero(cfg: GenerateConfig) -> None:
+    result_dir = cfg.result_dir
+    os.makedirs(result_dir, exist_ok=True)
+    result_tag = cfg.result_tag.strip()
+    result_suffix = f"_{result_tag}" if result_tag else ""
+    result_prefix = f"libero_eval_{cfg.task_suite_name}{result_suffix}"
+
     # Initialize LIBERO task suite
     benchmark_dict = benchmark.get_benchmark_dict()
     task_suite = benchmark_dict[cfg.task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
     print(f"Task suite: {cfg.task_suite_name}")
-    log_file = open(f"{log_dir}/libero_eval_{cfg.task_suite_name}.log", "w")
+    if result_tag:
+        print(f"Result tag: {result_tag}")
+    log_file = open(f"{result_dir}/{result_prefix}.log", "w")
     log_file.write(f"Task suite: {cfg.task_suite_name}\n")
+    if result_tag:
+        log_file.write(f"Result tag: {result_tag}\n")
     latency_records = []
     task_latency_summaries = {}
     latency_jsonl_file = None
-    latency_jsonl_path = f"{log_dir}/libero_eval_{cfg.task_suite_name}_latency_steps.jsonl"
-    latency_csv_path = f"{log_dir}/libero_eval_{cfg.task_suite_name}_latency_steps.csv"
-    latency_summary_path = f"{log_dir}/libero_eval_{cfg.task_suite_name}_latency_summary.json"
+    latency_jsonl_path = f"{result_dir}/{result_prefix}_latency_steps.jsonl"
+    latency_csv_path = f"{result_dir}/{result_prefix}_latency_steps.csv"
+    latency_summary_path = f"{result_dir}/{result_prefix}_latency_summary.json"
     if cfg.record_timing:
         latency_jsonl_file = open(latency_jsonl_path, "w")
         log_file.write(f"Latency JSONL: {latency_jsonl_path}\n")
@@ -445,6 +459,8 @@ def eval_libero(cfg: GenerateConfig) -> None:
         write_latency_csv(latency_csv_path, latency_records)
         latency_summary = {
             "task_suite": cfg.task_suite_name,
+            "result_tag": result_tag,
+            "result_prefix": result_prefix,
             "num_tasks": len(task_indices),
             "num_episodes": total_episodes,
             "num_successes": total_successes,

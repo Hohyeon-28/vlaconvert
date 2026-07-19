@@ -232,14 +232,15 @@ export GR00T_REPO=/home/hohyeon/private/QuantVLA_marlin
 In another terminal, run LIBERO eval from the existing GR00T/QuantVLA repo:
 
 ```bash
-cd /home/hohyeon/private/QuantVLA_marlin
-CUDA_VISIBLE_DEVICES=0 ./run_libero_eval.sh libero_10 --headless --port 5556
+cd /home/hohyeon/private/vlaconvert
+CUDA_VISIBLE_DEVICES=0 ./run_libero_eval.sh libero_10 --headless --port 5556 --result-tag real
 ```
 
-The LIBERO success rate is still produced by the existing evaluator log:
+The LIBERO success rate is still produced by the evaluator log. Use a result
+tag so FakeQuant and RealQuant do not overwrite each other:
 
 ```bash
-cat /tmp/logs/libero_eval_libero_10.log
+cat /tmp/logs/libero_eval_libero_10_real.log
 ```
 
 The replacement report is written to:
@@ -260,6 +261,47 @@ Fallback FP16 layers: 0
 
 If `RealQuant` fails, check the report and terminal output. Common causes are
 missing vLLM GPTQ-Marlin support or a shape/layout mismatch that vLLM refuses.
+
+## LIBERO Result Archive And Plots
+
+Older eval runs wrote untagged files such as
+`/tmp/logs/libero_eval_libero_spatial.log`. New runs should pass
+`--result-tag fake` or `--result-tag real`, which writes files such as:
+
+```text
+/tmp/logs/libero_eval_libero_spatial_fake.log
+/tmp/logs/libero_eval_libero_spatial_fake_latency_summary.json
+/tmp/logs/libero_eval_libero_spatial_fake_latency_steps.csv
+```
+
+To archive the current FakeQuant logs into this repo:
+
+```bash
+cd /home/hohyeon/private/vlaconvert
+bash vlaconvert_tools/archive_current_libero_logs.sh fake fake_existing_$(date +%Y%m%d_%H%M%S)
+```
+
+The archive script prefers tagged files and falls back to older untagged files.
+It writes one folder per suite under `results/<run_name>/`.
+
+Build the summary table and HTML plots:
+
+```bash
+python vlaconvert_tools/build_libero_results_report.py --results-dir results
+```
+
+Outputs:
+
+```text
+results/plots/libero_summary.csv
+results/plots/libero_summary.md
+results/plots/libero_report.html
+```
+
+For speed comparison, use `policy_model_get_action_ms_mean` for model-side
+latency and `step_total_ms_mean`, `step_total_ms_p90`, `step_total_ms_p99` for
+end-to-end robot action-step latency. When RealQuant runs are archived later,
+the same report automatically plots FakeQuant vs RealQuant.
 
 ## What This Does Not Yet Do
 
