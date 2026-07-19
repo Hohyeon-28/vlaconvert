@@ -291,7 +291,50 @@ def bar_svg(rows: list[dict[str, Any]], metric: str, title: str, ylabel: str) ->
     return "\n".join(parts)
 
 
+def horizontal_chart(rows: list[dict[str, Any]], metric: str, title: str, unit: str) -> str:
+    data = [row for row in rows if row.get(metric) is not None]
+    if not data:
+        return f"<section class='quick-chart'><h2>{html.escape(title)}</h2><p>No data.</p></section>"
+
+    max_value = max(float(row[metric]) for row in data) or 1.0
+    row_html = []
+    for suite in SUITE_ORDER:
+        suite_rows = [row for row in data if row["suite"] == suite]
+        if not suite_rows:
+            continue
+        row_html.append(
+            f"<div class='suite-label'>{html.escape(SUITE_LABELS.get(suite, suite))}</div>"
+        )
+        for row in sorted(
+            suite_rows,
+            key=lambda item: MODE_ORDER.index(item["mode"]) if item["mode"] in MODE_ORDER else 99,
+        ):
+            value = float(row[metric])
+            width_pct = max(1.0, value / max_value * 100.0)
+            color = MODE_COLORS.get(row["mode"], MODE_COLORS["unknown"])
+            row_html.append(
+                "<div class='bar-row'>"
+                f"<div class='bar-name'>{html.escape(row['mode'])}</div>"
+                "<div class='bar-track'>"
+                f"<div class='bar-fill' style='width:{width_pct:.2f}%; background:{color}'></div>"
+                "</div>"
+                f"<div class='bar-value'>{value:.2f} {html.escape(unit)}</div>"
+                "</div>"
+            )
+    return (
+        "<section class='quick-chart'>"
+        f"<h2>{html.escape(title)}</h2>"
+        + "".join(row_html)
+        + "</section>"
+    )
+
+
 def write_html(path: Path, rows: list[dict[str, Any]]) -> None:
+    quick_sections = [
+        horizontal_chart(rows, "success_rate_pct", "Accuracy", "%"),
+        horizontal_chart(rows, "policy_model_get_action_ms_mean", "Model Latency Mean", "ms"),
+        horizontal_chart(rows, "step_total_ms_mean", "End-to-End Step Latency Mean", "ms"),
+    ]
     sections = [
         bar_svg(rows, "success_rate_pct", "Accuracy By Suite", "Success (%)"),
         bar_svg(rows, "policy_model_get_action_ms_mean", "Model Latency Mean", "ms"),
@@ -330,6 +373,15 @@ def write_html(path: Path, rows: list[dict[str, Any]]) -> None:
     body {{ font-family: Arial, sans-serif; margin: 24px; color: #111827; }}
     h1 {{ margin-bottom: 4px; }}
     .note {{ color: #4b5563; max-width: 920px; line-height: 1.45; }}
+    .quick-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin: 24px 0 36px; }}
+    .quick-chart {{ border: 1px solid #d1d5db; padding: 16px; background: #ffffff; }}
+    .quick-chart h2 {{ margin: 0 0 14px; font-size: 18px; }}
+    .suite-label {{ font-weight: 700; margin: 12px 0 6px; color: #111827; }}
+    .bar-row {{ display: grid; grid-template-columns: 54px 1fr 92px; gap: 8px; align-items: center; margin: 5px 0; }}
+    .bar-name {{ font-size: 12px; color: #374151; }}
+    .bar-track {{ height: 14px; background: #e5e7eb; overflow: hidden; }}
+    .bar-fill {{ height: 100%; }}
+    .bar-value {{ font-size: 12px; text-align: right; color: #111827; }}
     section {{ margin: 28px 0 42px; }}
     svg {{ width: 100%; max-width: 1040px; height: auto; border: 1px solid #e5e7eb; }}
     .axis {{ stroke: #374151; stroke-width: 1; }}
@@ -347,6 +399,9 @@ def write_html(path: Path, rows: list[dict[str, Any]]) -> None:
     Use <code>policy_model_get_action_ms_mean</code> to compare FakeQuant vs RealQuant model-side speed.
     Use <code>step_total_ms_mean/p90/p99</code> for end-to-end robot action-step latency.
   </p>
+  <div class="quick-grid">
+    {''.join(quick_sections)}
+  </div>
   {''.join(sections)}
   <h2>Summary Table</h2>
   <table>
